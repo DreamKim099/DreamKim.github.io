@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>나만의 GPT 비서</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      max-width: 600px;
+      margin: auto;
+    }
+    #chat { white-space: pre-line; margin-top: 20px; }
+    .entry { margin-bottom: 16px; }
+    .user { font-weight: bold; color: #444; }
+    .bot { margin-left: 10px; color: #0077cc; }
+    textarea { width: 100%; height: 60px; margin-top: 10px; }
+    button { margin-top: 10px; margin-right: 10px; }
+    #top-bar { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+
+  <div id="app">
+    <!-- API 키 입력 화면 -->
+    <div id="keyInputScreen">
+      <h3>API 키를 입력하세요</h3>
+      <input type="password" id="apiKeyInput" placeholder="sk-..." style="width:100%; padding:5px;">
+      <button onclick="startChat()">시작하기</button>
+    </div>
+
+    <!-- 채팅 화면 -->
+    <div id="chatScreen" style="display:none;">
+      <div id="top-bar">
+        <button onclick="exportLogs()">내보내기</button>
+        <button onclick="clearLogs()">로그 초기화</button>
+      </div>
+
+      <div id="chat"></div>
+      <textarea id="userInput" placeholder="질문을 입력하세요"></textarea>
+      <button onclick="sendMessage()">보내기</button>
+    </div>
+  </div>
+
+  <script>
+    let apiKey = "";
+    let logEntries = [];
+
+    // 자동 복원
+    window.onload = function () {
+      const saved = localStorage.getItem("chat_logs");
+      if (saved && confirm("이전에 저장된 대화를 불러올까요?")) {
+        logEntries = JSON.parse(saved);
+        renderLog();
+      }
+    };
+
+    function startChat() {
+      const inputKey = document.getElementById("apiKeyInput").value.trim();
+      if (!inputKey.startsWith("sk-")) {
+        alert("유효한 OpenAI API 키를 입력해주세요.");
+        return;
+      }
+      apiKey = inputKey;
+      document.getElementById("keyInputScreen").style.display = "none";
+      document.getElementById("chatScreen").style.display = "block";
+    }
+
+    function sendMessage() {
+      const input = document.getElementById("userInput").value.trim();
+      if (!input) return;
+
+      const chatDiv = document.getElementById("chat");
+      chatDiv.innerHTML += `<div class="entry"><span class="user">👤 나:</span> ${input}</div>`;
+      document.getElementById("userInput").value = "";
+
+      const timestamp = new Date().toISOString();
+      const importance = getImportance(input);
+      const type = getType(input);
+
+      fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: "gpt-3.5-turbo",
+          messages: [
+            { role: "system", content: "너는 사용자의 비서야. 간결하고 유용하게 답변해." },
+            { role: "user", content: input }
+          ]
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        const reply = data.choices?.[0]?.message?.content?.trim() || "(응답 없음)";
+        chatDiv.innerHTML += `<div class="entry"><span class="bot">🤖 GPT:</span> ${reply}</div>`;
+        chatDiv.scrollTop = chatDiv.scrollHeight;
+
+        const log = {
+          timestamp: timestamp,
+          user_input: input,
+          ai_response: reply,
+          importance: importance,
+          type: type,
+          feedback: "unrated"
+        };
+
+        logEntries.push(log);
+        localStorage.setItem("chat_logs", JSON.stringify(logEntries));
+      })
+      .catch(err => {
+        chatDiv.innerHTML += `<div class="entry"><span class="bot">🤖 GPT:</span> 오류 발생: ${err.message}</div>`;
+      });
+    }
+
+    function getImportance(input) {
+      if (/(지금|빨리|긴급|즉시)/.test(input)) return "high";
+      if (/(나중에|언젠가|여유)/.test(input)) return "low";
+      return "medium";
+    }
+
+    function getType(input) {
+      if (/(회의|일정|약속|스케줄)/.test(input)) return "일정";
+      if (/(기분|우울|행복|짜증|감정)/.test(input)) return "감정";
+      if (/(할 일|작업|공부|해야 할|업무)/.test(input)) return "작업";
+      return "기타";
+    }
+
+    function exportLogs() {
+      const blob = new Blob([JSON.stringify(logEntries, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "chat_log.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function clearLogs() {
+      if (confirm("정말 로그를 모두 지우시겠습니까?")) {
+        logEntries = [];
+        localStorage.removeItem("chat_logs");
+        document.getElementById("chat").innerHTML = "";
+      }
+    }
+
+    function renderLog() {
+      const chatDiv = document.getElementById("chat");
+      chatDiv.innerHTML = "";
+      logEntries.forEach(entry => {
+        chatDiv.innerHTML += `
+          <div class="entry"><span class="user">👤 나:</span> ${entry.user_input}</div>
+          <div class="entry"><span class="bot">🤖 GPT:</span> ${entry.ai_response}</div>
+        `;
+      });
+    }
+  </script>
+</body>
+</html>
